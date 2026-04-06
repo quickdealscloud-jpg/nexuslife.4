@@ -1,201 +1,220 @@
 import sharp from 'sharp';
 
-function getDoy(d){const s=new Date(d.getFullYear(),0,0);return Math.floor((d-s)/86400000);}
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+// iPhone sizes
+const SIZES = {
+  iphone13: { w: 1170, h: 2532 },
+  iphone15: { w: 1179, h: 2556 },
+};
 
-export default async function handler(req,res){
-  const W=1170,H=2532;
-  const now=new Date();
-  const ist=new Date(now.getTime()+5.5*3600000);
-  const doy=getDoy(ist);
-  const left=365-doy,pct=Math.round(doy/365*100),wkDone=Math.floor(doy/7);
-  const cMin=ist.getHours()*60+ist.getMinutes(),cHour=ist.getHours();
-  const DAYS=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  const MNTH=['January','February','March','April','May','June','July','August','September','October','November','December'];
-  const dateStr=`${DAYS[ist.getDay()]}, ${MNTH[ist.getMonth()]} ${ist.getDate()}`;
-  const streak=12;
-  const glasses=Math.min(8,Math.max(0,Math.floor((cHour-7)/2)));
-  const QUOTES=['Small daily improvements lead to staggering long-term results.','Push yourself. No one else will do it for you.','What you do today shapes who you become tomorrow.','Dream it. Believe it. Build it. The time is NOW.','Every morning is a new chance to become your best self.','The secret of getting ahead is getting started.'];
-  const quote=QUOTES[doy%QUOTES.length];
-  const TASKS=[
-    {name:'Morning Meditation',time:'5:00 AM · 20 min',sh:5,sm:0,dur:20,color:'#8B7AFF'},
-    {name:'Morning Workout',   time:'5:30 AM · 45 min',sh:5,sm:30,dur:45,color:'#34D399'},
-    {name:'Deep Work Session', time:'9:00 AM · 2 hrs',  sh:9,sm:0,dur:120,color:'#FB923C'},
-    {name:'Review & Plan',     time:'6:00 PM · 30 min', sh:18,sm:0,dur:30,color:'#38BDF8'},
+export default async function handler(req, res) {
+  const device = req.query.device || 'iphone13';
+  const { w, h } = SIZES[device] || SIZES.iphone13;
+
+  const now = new Date();
+  const IST = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+  const hr = IST.getHours();
+  const mn = IST.getMinutes().toString().padStart(2, '0');
+  const yr = IST.getFullYear();
+
+  const yearStart = new Date(yr, 0, 1);
+  const yearEnd = new Date(yr + 1, 0, 1);
+  const yearPct = (IST - yearStart) / (yearEnd - yearStart);
+  const daysLeft = Math.ceil((yearEnd - IST) / 86400000);
+  const pctDone = Math.round(yearPct * 100);
+
+  // Water & tasks
+  const glassCount = Math.min(Math.floor(hr / 3), 8);
+  const nextWaterMin = (3 * 60) - (hr % 3) * 60 - IST.getMinutes();
+
+  const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const dateStr = `${days[IST.getDay()]}, ${months[IST.getMonth()]} ${IST.getDate()}`;
+
+  // Task badges
+  const getTaskBadge = (startH, endH) => {
+    if (hr >= startH && hr < endH) return { text: 'NOW', color: '#a080ff', bg: 'rgba(120,80,255,0.3)', border: '#7850ff' };
+    if (hr >= endH) return { text: 'DONE', color: '#4cff91', bg: 'rgba(76,255,145,0.12)', border: '#4cff91' };
+    return { text: 'NEXT', color: 'rgba(255,255,255,0.45)', bg: 'rgba(255,255,255,0.07)', border: 'rgba(255,255,255,0.15)' };
+  };
+
+  const t1 = getTaskBadge(5, 6);
+  const t2 = getTaskBadge(9, 11);
+
+  // Quotes
+  const quotes = [
+    'Small daily improvements lead to staggering long-term results.',
+    'Discipline is choosing what you want most over what you want now.',
+    'You do not rise to goals — you fall to your systems.',
+    'Every day is a deposit into your future.',
+    'Work in silence. Let your results make the noise.',
   ];
+  const quote = quotes[Math.floor(Date.now() / (1000 * 60 * 60 * 4)) % quotes.length];
 
-  // Build SVG
-  let s=`<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
-<defs>
-<radialGradient id="r1" cx="15%" cy="7%" r="60%"><stop offset="0%" stop-color="#5A46FF" stop-opacity=".36"/><stop offset="100%" stop-color="#5A46FF" stop-opacity="0"/></radialGradient>
-<radialGradient id="r2" cx="88%" cy="13%" r="48%"><stop offset="0%" stop-color="#9670FF" stop-opacity=".22"/><stop offset="100%" stop-color="#9670FF" stop-opacity="0"/></radialGradient>
-<radialGradient id="r3" cx="50%" cy="97%" r="62%"><stop offset="0%" stop-color="#1E96F0" stop-opacity=".13"/><stop offset="100%" stop-color="#1E96F0" stop-opacity="0"/></radialGradient>
-<linearGradient id="bg" x1="0" x2="1" y1="0" y2="0"><stop offset="0%" stop-color="#6C52FF"/><stop offset="100%" stop-color="#A78BFA"/></linearGradient>
-<linearGradient id="sh" x1="0" x2="1" y1="0" y2="0"><stop offset="0%" stop-color="white" stop-opacity="0"/><stop offset="50%" stop-color="white" stop-opacity=".13"/><stop offset="100%" stop-color="white" stop-opacity="0"/></linearGradient>
-</defs>
-<rect width="${W}" height="${H}" fill="#07070F"/>
-<rect width="${W}" height="${H}" fill="url(#r1)"/>
-<rect width="${W}" height="${H}" fill="url(#r2)"/>
-<rect width="${W}" height="${H}" fill="url(#r3)"/>`;
+  // Dot grid
+  const cols = 24, rows = 7, total = cols * rows;
+  const filled = Math.round(total * yearPct);
+  const dotAreaW = w - 88;
+  const dotAreaH = Math.round(h * 0.185);
+  const dotAreaX = 44;
+  const dotAreaY = Math.round(h * 0.325);
+  const gapX = dotAreaW / cols;
+  const gapY = dotAreaH / rows;
+  const dotR = Math.min(gapX, gapY) * 0.30;
 
-  // Grid
-  for(let x=0;x<W;x+=96)s+=`<line x1="${x}" y1="0" x2="${x}" y2="${H}" stroke="rgba(255,255,255,.018)" stroke-width="1"/>`;
-  for(let y=0;y<H;y+=96)s+=`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="rgba(255,255,255,.018)" stroke-width="1"/>`;
-
-  // Stars seeded
-  let seed=doy*7919+137;
-  const rnd=()=>{seed=(seed*1664525+1013904223)&0xffffffff;return(seed>>>0)/4294967295;};
-  for(let i=0;i<80;i++){
-    const sx=(rnd()*W).toFixed(1),sy=(rnd()*H).toFixed(1),sr=(rnd()*2+.4).toFixed(1),so=(rnd()*.28+.05).toFixed(2);
-    s+=`<circle cx="${sx}" cy="${sy}" r="${sr}" fill="rgba(255,255,255,${so})"/>`;
-  }
-
-  // Dynamic Island
-  s+=`<rect x="${W/2-168}" y="28" width="336" height="94" rx="55" fill="#000"/>`;
-
-  // Date
-  s+=`<text x="62" y="200" font-family="Arial,Helvetica,sans-serif" font-size="48" font-weight="400" fill="rgba(255,255,255,.45)">${esc(dateStr)}</text>`;
-
-  // BADGE ROW y=595
-  const BY=595,BH=80;
-  const badges=[
-    {t:`${left} days left`,bg:'rgba(95,75,255,.22)',st:'rgba(110,90,255,.5)',fc:'#C4B0FF',w:290},
-    {t:`2026 · ${pct}% done`,bg:'rgba(255,255,255,.07)',st:'rgba(255,255,255,.13)',fc:'rgba(255,255,255,.52)',w:310},
-    {t:`${streak} streak`,bg:'rgba(255,95,45,.22)',st:'rgba(255,115,50,.5)',fc:'#FF9060',w:220},
-  ];
-  let bx=62;
-  badges.forEach((b,bi)=>{
-    s+=`<rect x="${bx}" y="${BY}" width="${b.w}" height="${BH}" rx="40" fill="${b.bg}" stroke="${b.st}" stroke-width="2.5"/>`;
-    if(bi===2){
-      // fire emoji as SVG path (orange circle with flame shape)
-      s+=`<circle cx="${bx+30}" cy="${BY+BH/2}" r="14" fill="#FF6030" opacity=".9"/>`;
-      s+=`<text x="${bx+28}" y="${BY+52}" font-family="Arial" font-size="34" font-weight="700" fill="${b.fc}">${esc(b.t)}</text>`;
+  let dotsSVG = '';
+  for (let i = 0; i < total; i++) {
+    const col = i % cols, row = Math.floor(i / cols);
+    const cx = dotAreaX + col * gapX + gapX / 2;
+    const cy = dotAreaY + row * gapY + gapY / 2;
+    if (i === filled - 1) {
+      dotsSVG += `<circle cx="${cx}" cy="${cy}" r="${dotR + 4}" fill="#ff6b35" opacity="0.9"/>`;
+      dotsSVG += `<circle cx="${cx}" cy="${cy}" r="${dotR + 8}" fill="#ff6b35" opacity="0.25"/>`;
+    } else if (i < filled) {
+      dotsSVG += `<circle cx="${cx}" cy="${cy}" r="${dotR}" fill="#b48cff" opacity="0.82"/>`;
     } else {
-      s+=`<text x="${bx+30}" y="${BY+52}" font-family="Arial,Helvetica,sans-serif" font-size="34" font-weight="600" fill="${b.fc}">${esc(b.t)}</text>`;
-    }
-    bx+=b.w+20;
-  });
-
-  // DOT GRID y=705
-  const PX=60,DY=705,DH=238;
-  s+=`<rect x="${PX}" y="${DY}" width="${W-PX*2}" height="${DH}" rx="40" fill="rgba(255,255,255,.042)" stroke="rgba(255,255,255,.08)" stroke-width="2"/>`;
-  s+=`<rect x="${PX}" y="${DY}" width="${W-PX*2}" height="3" fill="url(#sh)"/>`;
-
-  const COLS=26,ROWS=2,DS=20,DG=9;
-  const dtw=COLS*(DS+DG)-DG;
-  const dsx=PX+(W-PX*2-dtw)/2,dsy=DY+(DH-ROWS*(DS+DG+6))/2;
-  for(let i=0;i<COLS*ROWS;i++){
-    const col=i%COLS,row=Math.floor(i/COLS);
-    const wk=Math.round((i/(COLS*ROWS))*53);
-    const dx=dsx+col*(DS+DG),dy=dsy+row*(DS+DG+6);
-    if(wk<wkDone){
-      s+=`<rect x="${dx}" y="${dy}" width="${DS}" height="${DS}" rx="5" fill="#7B6AFF"/>`;
-      s+=`<rect x="${dx}" y="${dy}" width="${DS}" height="${DS}" rx="5" fill="#8B7AFF" opacity=".5"/>`;
-    } else if(wk===wkDone){
-      s+=`<rect x="${dx-2}" y="${dy-2}" width="${DS+4}" height="${DS+4}" rx="6" fill="rgba(255,255,255,.15)"/>`;
-      s+=`<rect x="${dx}" y="${dy}" width="${DS}" height="${DS}" rx="5" fill="#FFFFFF"/>`;
-    } else {
-      s+=`<rect x="${dx}" y="${dy}" width="${DS}" height="${DS}" rx="5" fill="rgba(255,255,255,.09)"/>`;
+      dotsSVG += `<circle cx="${cx}" cy="${cy}" r="${dotR}" fill="white" opacity="0.13"/>`;
     }
   }
 
-  // GOAL y=968
-  const GY=968,GH=96;
-  s+=`<rect x="${PX}" y="${GY}" width="${W-PX*2}" height="${GH}" rx="30" fill="rgba(255,255,255,.042)" stroke="rgba(255,255,255,.075)" stroke-width="2"/>`;
-  s+=`<circle cx="${PX+42}" cy="${GY+GH/2}" r="11" fill="#7C6AFF"/>`;
-  s+=`<text x="${PX+66}" y="${GY+57}" font-family="Arial,Helvetica,sans-serif" font-size="28" font-weight="500" fill="rgba(255,255,255,.32)">Yearly Goal</text>`;
-  s+=`<text x="${PX+242}" y="${GY+57}" font-family="Arial,Helvetica,sans-serif" font-size="34" font-weight="700" fill="rgba(255,255,255,.9)">Build your best year yet</text>`;
-
-  // TASKS
-  let TY=1086,nextSet=false;
-  TASKS.forEach((t,idx)=>{
-    const sm=t.sh*60+t.sm,em=sm+t.dur;
-    let state,badge;
-    if(cMin>=sm&&cMin<em){state='now';badge='NOW';}
-    else if(cMin<sm&&!nextSet){state='next';badge='NEXT';nextSet=true;}
-    else if(cMin<sm){state='later';badge='LATER';}
-    else{state='done';badge='DONE';}
-
-    const TH=140;
-    let cf='rgba(255,255,255,.048)',cs='rgba(255,255,255,.08)';
-    if(state==='now'){cf='rgba(95,75,255,.15)';cs='rgba(100,82,255,.45)';}
-    if(state==='done') cf='rgba(255,255,255,.025)';
-
-    s+=`<rect x="${PX}" y="${TY}" width="${W-PX*2}" height="${TH}" rx="36" fill="${cf}" stroke="${cs}" stroke-width="2.5"/>`;
-
-    // Accent bar
-    const ac=state==='now'?'#7C6AFF':state==='next'?'#34D399':'rgba(255,255,255,.15)';
-    s+=`<rect x="${PX}" y="${TY+24}" width="5" height="${TH-48}" rx="3" fill="${ac}"/>`;
-
-    // Icon circle
-    const IW=90,IX=PX+28,IY=TY+(TH-IW)/2;
-    s+=`<rect x="${IX}" y="${IY}" width="${IW}" height="${IW}" rx="22" fill="rgba(255,255,255,.09)"/>`;
-    s+=`<circle cx="${IX+IW/2}" cy="${IY+IW/2}" r="24" fill="${t.color}" opacity="${state==='done'?.3:.75}"/>`;
-
-    // Task name
-    const top=state==='done'?.38:1;
-    s+=`<text x="${PX+138}" y="${TY+56}" font-family="Arial,Helvetica,sans-serif" font-size="38" font-weight="700" fill="rgba(255,255,255,${top})">${esc(t.name)}</text>`;
-    s+=`<text x="${PX+138}" y="${TY+96}" font-family="Arial,Helvetica,sans-serif" font-size="30" font-weight="400" fill="rgba(255,255,255,${state==='done'?.28:.38})">${esc(t.time)}</text>`;
-
-    // Progress bar (NOW)
-    if(state==='now'){
-      const p=Math.min(100,Math.round(((cMin-sm)/t.dur)*100));
-      const bx=PX+138,by=TY+114,bw=W-PX*2-224,bh=9;
-      s+=`<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="5" fill="rgba(255,255,255,.08)"/>`;
-      s+=`<rect x="${bx}" y="${by}" width="${Math.max(bw*p/100,8)}" height="${bh}" rx="5" fill="url(#bg)"/>`;
-    }
-
-    // Badge
-    let bf,bs2,bc;
-    if(state==='now'){bf='rgba(100,82,255,.35)';bs2='rgba(120,100,255,.6)';bc='#C4B0FF';}
-    else if(state==='next'){bf='rgba(52,211,153,.18)';bs2='rgba(52,211,153,.35)';bc='#34D399';}
-    else{bf='rgba(255,255,255,.05)';bs2='rgba(255,255,255,.09)';bc='rgba(255,255,255,.32)';}
-    const bw2=badge.length*20+56,bh2=54;
-    const bx2=W-PX-bw2-16,by2=TY+20;
-    s+=`<rect x="${bx2}" y="${by2}" width="${bw2}" height="${bh2}" rx="27" fill="${bf}" stroke="${bs2}" stroke-width="1.5"/>`;
-    s+=`<text x="${bx2+bw2/2}" y="${by2+36}" font-family="Arial,Helvetica,sans-serif" font-size="26" font-weight="700" fill="${bc}" text-anchor="middle" letter-spacing="2">${badge}</text>`;
-
-    TY+=TH+14;
-  });
-
-  // WATER
-  const WY=TY,WH=126;
-  s+=`<rect x="${PX}" y="${WY}" width="${W-PX*2}" height="${WH}" rx="34" fill="rgba(255,255,255,.042)" stroke="rgba(56,189,248,.22)" stroke-width="2"/>`;
-  s+=`<text x="${PX+38}" y="${WY+44}" font-family="Arial,Helvetica,sans-serif" font-size="26" font-weight="600" fill="rgba(255,255,255,.3)" letter-spacing="3">HYDRATION</text>`;
-  for(let i=0;i<8;i++){
-    const op=i<glasses?'1':'.14';
-    const fill=i<glasses?'#38BDF8':'rgba(255,255,255,.3)';
-    s+=`<ellipse cx="${PX+52+i*68}" cy="${WY+86}" rx="16" ry="20" fill="${fill}" opacity="${op}"/>`;
-    if(i<glasses) s+=`<ellipse cx="${PX+52+i*68}" cy="${WY+78}" rx="5" ry="6" fill="rgba(255,255,255,.4)"/>`;
+  // Water drops
+  let dropsSVG = '';
+  const dropStartX = Math.round(w * 0.12);
+  const dropY = Math.round(h * 0.806);
+  for (let i = 0; i < 8; i++) {
+    const dx = dropStartX + i * Math.round(w * 0.028);
+    const fill = i < glassCount ? '#00b4ff' : 'rgba(0,180,255,0.22)';
+    const op = i < glassCount ? '1' : '0.5';
+    dropsSVG += `<ellipse cx="${dx}" cy="${dropY}" rx="${Math.round(w*0.009)}" ry="${Math.round(w*0.012)}" fill="${fill}" opacity="${op}"/>`;
   }
-  s+=`<text x="${W-PX-38}" y="${WY+74}" font-family="Arial,Helvetica,sans-serif" font-size="30" font-weight="600" fill="rgba(56,189,248,.9)" text-anchor="end">${glasses} of 8 glasses</text>`;
 
-  // QUOTE
-  const QY=WY+WH+16,QH=172;
-  s+=`<rect x="${PX}" y="${QY}" width="${W-PX*2}" height="${QH}" rx="34" fill="rgba(255,255,255,.033)" stroke="rgba(255,255,255,.06)" stroke-width="2"/>`;
-  s+=`<text x="${W-PX+20}" y="${QY+158}" font-family="Georgia,serif" font-size="200" font-weight="900" fill="rgba(95,75,255,.12)" text-anchor="end">&#x201C;</text>`;
+  // Scale values
+  const fs = (base) => Math.round(base * w / 1170); // font scale
+  const rr = (x, y, bw, bh, r, fill, stroke, sw = 1) =>
+    `<rect x="${x}" y="${y}" width="${bw}" height="${bh}" rx="${r}" fill="${fill}" ${stroke ? `stroke="${stroke}" stroke-width="${sw}"` : ''}/>`;
 
-  // Quote text wrap
-  const maxC=50;
-  const qw=quote.split(' ');let ql='',qls=[];
-  qw.forEach(w=>{if((ql+w).length>maxC&&ql){qls.push(ql.trim());ql=w+' ';}else ql+=w+' ';});
-  if(ql.trim())qls.push(ql.trim());
-  qls.forEach((l,li)=>{
-    const txt=li===0?`"${l}`:li===qls.length-1?`${l}"`:l;
-    s+=`<text x="${PX+40}" y="${QY+54+li*46}" font-family="Arial,Helvetica,sans-serif" font-size="32" font-style="italic" font-weight="500" fill="rgba(255,255,255,.5)">${esc(txt)}</text>`;
-  });
-  s+=`<text x="${PX+40}" y="${QY+54+qls.length*46+6}" font-family="Arial,Helvetica,sans-serif" font-size="28" font-weight="600" fill="#9B8AFF">— Nexus Life OS</text>`;
+  // Layout Y positions (proportional)
+  const badgeY = Math.round(h * 0.253);
+  const badgeH = Math.round(h * 0.028);
+  const goalY = Math.round(h * 0.525);
+  const goalH = Math.round(h * 0.038);
+  const t1Y = Math.round(h * 0.573);
+  const t1H = Math.round(h * 0.055);
+  const t2Y = Math.round(h * 0.635);
+  const t2H = Math.round(h * 0.055);
+  const waterY = Math.round(h * 0.697);
+  const waterH = Math.round(h * 0.048);
+  const quoteY = Math.round(h * 0.775);
+  const poweredY = Math.round(h * 0.815);
+  const pillY = Math.round(h * 0.838);
 
-  // POWERED
-  s+=`<text x="${W/2}" y="${H-62}" font-family="Arial,Helvetica,sans-serif" font-size="22" font-weight="400" fill="rgba(255,255,255,.1)" text-anchor="middle" letter-spacing="4">POWERED BY NEURAL INTELLIGENCE</text>`;
+  const cardPad = Math.round(w * 0.056);
+  const cardW = w - cardPad * 2;
+  const orbSize = Math.round(h * 0.042);
+  const orbX = cardPad + Math.round(w * 0.022);
+  const textX = cardPad + orbSize + Math.round(w * 0.065);
+  const badgeW = Math.round(w * 0.118);
+  const badgeTX = cardPad + cardW - Math.round(w * 0.01);
 
-  // HOME BAR
-  s+=`<rect x="${W/2-204}" y="${H-36}" width="408" height="14" rx="7" fill="rgba(255,255,255,.22)"/>`;
-  s+=`</svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0%" stop-color="#06001a"/>
+      <stop offset="40%" stop-color="#0a0520"/>
+      <stop offset="100%" stop-color="#000820"/>
+    </linearGradient>
+    <radialGradient id="neb1" cx="0" cy="0" r="1">
+      <stop offset="0%" stop-color="#5028a0" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#5028a0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="neb2" cx="1" cy="1" r="0.7">
+      <stop offset="0%" stop-color="#0078c8" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#0078c8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="streakGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ff6b35"/>
+      <stop offset="100%" stop-color="#ff3d71"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
 
-  const png=await sharp(Buffer.from(s)).png({compressionLevel:6}).toBuffer();
-  res.setHeader('Content-Type','image/png');
-  res.setHeader('Cache-Control','no-cache,no-store,must-revalidate');
-  res.setHeader('Access-Control-Allow-Origin','*');
-  res.send(png);
+  <!-- Background -->
+  <rect width="${w}" height="${h}" fill="url(#bg)"/>
+  <rect width="${w}" height="${h}" fill="url(#neb1)"/>
+  <rect width="${w}" height="${h}" fill="url(#neb2)"/>
+
+  <!-- Stars -->
+  ${Array.from({length:80}, () => {
+    const sx = Math.floor(Math.random()*w), sy = Math.floor(Math.random()*h);
+    const sr = (Math.random()*1.5+0.3).toFixed(1);
+    const sa = (Math.random()*0.5+0.05).toFixed(2);
+    return `<circle cx="${sx}" cy="${sy}" r="${sr}" fill="white" opacity="${sa}"/>`;
+  }).join('')}
+
+  <!-- DOT GRID -->
+  ${dotsSVG}
+
+  <!-- BADGE ROW -->
+  <!-- Days left -->
+  ${rr(cardPad, badgeY, Math.round(w*0.265), badgeH, Math.round(badgeH/2), 'rgba(120,80,255,0.28)', '#8c64ff', 1)}
+  <text x="${cardPad + Math.round(w*0.133)}" y="${badgeY + Math.round(badgeH*0.68)}" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="${fs(22)}" font-weight="700" fill="#b496ff">${daysLeft} days left</text>
+
+  <!-- Year % -->
+  <text x="${Math.round(w/2)}" y="${badgeY + Math.round(badgeH*0.68)}" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="${fs(20)}" fill="rgba(255,255,255,0.35)">${yr} · ${pctDone}% done</text>
+
+  <!-- Streak badge -->
+  ${rr(w - cardPad - Math.round(w*0.265), badgeY, Math.round(w*0.265), badgeH, Math.round(badgeH/2), 'url(#streakGrad)', 'none')}
+  <text x="${w - cardPad - Math.round(w*0.133)}" y="${badgeY + Math.round(badgeH*0.68)}" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="${fs(22)}" font-weight="700" fill="white">&#128293; 12 streak</text>
+
+  <!-- GOAL PILL -->
+  ${rr(cardPad, goalY, cardW, goalH, Math.round(goalH*0.5), 'rgba(255,255,255,0.07)', 'rgba(255,255,255,0.14)', 1)}
+  <circle cx="${cardPad + Math.round(w*0.04)}" cy="${goalY + goalH/2}" r="${fs(7)}" fill="#7850ff"/>
+  <text x="${cardPad + Math.round(w*0.065)}" y="${goalY + goalH/2 + fs(7)}" font-family="Arial,Helvetica,sans-serif" font-size="${fs(21)}" fill="rgba(255,255,255,0.5)">Yearly Goal</text>
+  <text x="${cardPad + cardW - Math.round(w*0.022)}" y="${goalY + goalH/2 + fs(7)}" text-anchor="end" font-family="Arial,Helvetica,sans-serif" font-size="${fs(22)}" font-weight="700" fill="rgba(255,255,255,0.92)">Build your best year yet</text>
+
+  <!-- TASK 1 -->
+  ${rr(cardPad, t1Y, cardW, t1H, Math.round(t1H*0.35), 'rgba(255,255,255,0.06)', 'rgba(255,255,255,0.11)', 1)}
+  ${rr(orbX, t1Y + Math.round(t1H*0.15), orbSize, orbSize, Math.round(orbSize*0.3), 'rgba(255,107,53,0.22)', 'none')}
+  <text x="${orbX + orbSize/2}" y="${t1Y + Math.round(t1H*0.65)}" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="${fs(24)}" fill="white">&#128170;</text>
+  <text x="${textX}" y="${t1Y + Math.round(t1H*0.44)}" font-family="Arial,Helvetica,sans-serif" font-size="${fs(24)}" font-weight="700" fill="rgba(255,255,255,0.92)">Morning Workout</text>
+  <text x="${textX}" y="${t1Y + Math.round(t1H*0.75)}" font-family="Arial,Helvetica,sans-serif" font-size="${fs(19)}" fill="rgba(255,255,255,0.38)">5:00 AM  45 min</text>
+  ${rr(badgeTX - badgeW, t1Y + Math.round(t1H*0.27), badgeW, Math.round(t1H*0.45), Math.round(t1H*0.18), t1.bg, t1.border, 1)}
+  <text x="${badgeTX - badgeW/2}" y="${t1Y + Math.round(t1H*0.59)}" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="${fs(18)}" font-weight="700" fill="${t1.color}">${t1.text}</text>
+
+  <!-- TASK 2 -->
+  ${rr(cardPad, t2Y, cardW, t2H, Math.round(t2H*0.35), 'rgba(255,255,255,0.06)', 'rgba(255,255,255,0.11)', 1)}
+  ${rr(orbX, t2Y + Math.round(t2H*0.15), orbSize, orbSize, Math.round(orbSize*0.3), 'rgba(120,80,255,0.22)', 'none')}
+  <text x="${orbX + orbSize/2}" y="${t2Y + Math.round(t2H*0.65)}" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="${fs(24)}" fill="white">&#128218;</text>
+  <text x="${textX}" y="${t2Y + Math.round(t2H*0.44)}" font-family="Arial,Helvetica,sans-serif" font-size="${fs(24)}" font-weight="700" fill="rgba(255,255,255,0.92)">Deep Work Session</text>
+  <text x="${textX}" y="${t2Y + Math.round(t2H*0.75)}" font-family="Arial,Helvetica,sans-serif" font-size="${fs(19)}" fill="rgba(255,255,255,0.38)">9:00 AM  2 hrs</text>
+  ${rr(badgeTX - badgeW, t2Y + Math.round(t2H*0.27), badgeW, Math.round(t2H*0.45), Math.round(t2H*0.18), t2.bg, t2.border, 1)}
+  <text x="${badgeTX - badgeW/2}" y="${t2Y + Math.round(t2H*0.59)}" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="${fs(18)}" font-weight="700" fill="${t2.color}">${t2.text}</text>
+
+  <!-- WATER BAR -->
+  ${rr(cardPad, waterY, cardW, waterH, Math.round(waterH*0.4), 'rgba(0,180,255,0.08)', 'rgba(0,180,255,0.22)', 1)}
+  ${dropsSVG}
+  <text x="${Math.round(w*0.38)}" y="${waterY + Math.round(waterH*0.44)}" font-family="Arial,Helvetica,sans-serif" font-size="${fs(22)}" font-weight="700" fill="rgba(0,200,255,0.95)">Hydration</text>
+  <text x="${Math.round(w*0.38)}" y="${waterY + Math.round(waterH*0.78)}" font-family="Arial,Helvetica,sans-serif" font-size="${fs(18)}" fill="rgba(0,180,255,0.55)">${glassCount} of 8  next in ${nextWaterMin} min</text>
+
+  <!-- QUOTE -->
+  <text x="${Math.round(w/2)}" y="${quoteY}" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="${fs(19)}" fill="rgba(255,255,255,0.28)" font-style="italic">&quot;${quote}&quot;</text>
+
+  <!-- POWERED -->
+  <text x="${Math.round(w/2)}" y="${poweredY}" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="${fs(14)}" fill="rgba(120,80,255,0.45)" letter-spacing="2">· POWERED BY NEURAL INTELLIGENCE ·</text>
+
+  <!-- HOME PILL -->
+  <rect x="${Math.round(w/2) - Math.round(w*0.15)}" y="${pillY}" width="${Math.round(w*0.30)}" height="${Math.round(h*0.006)}" rx="${Math.round(h*0.003)}" fill="rgba(255,255,255,0.22)"/>
+</svg>`;
+
+  try {
+    const png = await sharp(Buffer.from(svg)).png({ quality: 95, compressionLevel: 6 }).toBuffer();
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.status(200).send(png);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 }
