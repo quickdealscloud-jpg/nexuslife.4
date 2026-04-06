@@ -1,0 +1,9 @@
+{
+  "name": "nexus-wallpaper",
+  "version": "4.0.0",
+  "type": "module",
+  "dependencies": {
+    "sharp": "^0.33.3"
+  },
+  "engines": { "node": "20.x" }
+}
